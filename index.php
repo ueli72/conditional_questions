@@ -1,0 +1,116 @@
+<?php
+require(__DIR__ . '/../../config.php');
+require_once($CFG->libdir . '/formslib.php');
+
+$cmid = required_param('cmid', PARAM_INT);
+$slotid = required_param('slotid', PARAM_INT);
+$quizobj = \mod_quiz\quiz_settings::create_for_cmid($cmid);
+$cm = get_coursemodule_from_id('quiz', $cmid, 0, false, MUST_EXIST);
+$context = \context_module::instance($cmid);
+require_login($quizobj->get_course(), false, $cm);
+require_capability('local/conditional_questions:configure', $context);
+
+$PAGE->set_url('/local/conditional_questions/index.php', ['cmid' => $cmid, 'slotid' => $slotid]);
+$PAGE->set_context($context);
+$PAGE->activityheader->disable();
+
+$quizobj->preload_questions();
+$questions = array_filter($quizobj->get_questions(null, false),
+    static fn($question): bool => (int) $question->slotid === $slotid);
+if (!$questions) {
+    throw new \moodle_exception('invalidquestionid', 'local_conditional_questions');
+}
+$PAGE->set_title(get_string('conditionheading', 'local_conditional_questions'));
+$PAGE->set_heading(get_string('conditionheading', 'local_conditional_questions'));
+$targets = [
+    'group' => ['' => get_string('selecttarget', 'local_conditional_questions')],
+    'activity' => ['' => get_string('selecttarget', 'local_conditional_questions')],
+    'competency' => [],
+    'badge' => [],
+];
+foreach (groups_get_all_groups($quizobj->get_courseid()) as $groupid => $group) {
+    $targets['group'][$groupid] = format_string($group->name);
+}
+$modinfo = get_fast_modinfo($quizobj->get_courseid());
+foreach ($modinfo->get_cms() as $activity) {
+    if ($activity->uservisible && $activity->completion != COMPLETION_TRACKING_NONE) {
+        $targets['activity'][$activity->id] = format_string($activity->name);
+    }
+}
+$competencies = $DB->get_records_sql(
+    'SELECT c.id, c.shortname, cf.shortname AS frameworkname,
+            CASE WHEN cc.id IS NULL THEN 0 ELSE 1 END AS iscoursecompetency
+       FROM {competency} c
+       JOIN {competency_framework} cf ON cf.id = c.competencyframeworkid
+       LEFT JOIN {competency_coursecomp} cc
+         ON cc.competencyid = c.id AND cc.courseid = :courseid
+      ORDER BY cf.shortname, c.shortname', ['courseid' => $quizobj->get_courseid()]);
+foreach ($competencies as $competency) {
+    $scope = $competency->iscoursecompetency
+        ? get_string('coursecompetency', 'local_conditional_questions')
+        : get_string('globalcompetency', 'local_conditional_questions');
+    $targets['competency'][$competency->id] = $scope . ': ' . format_string($competency->frameworkname) . ' / ' .
+        format_string($competency->shortname);
+}
+foreach ($DB->get_records_select('badge', '(courseid IS NULL OR courseid = 0 OR courseid = :courseid)',
+        ['courseid' => $quizobj->get_courseid()], 'name') as $badge) {
+    $targets['badge'][$badge->id] = format_string($badge->name);
+}
+
+$form = new \local_conditional_questions\form\conditions(null, ['questions' => $questions, 'targets' => $targets]);
+$PAGE->requires->js_init_code(<<<'JS'
+document.querySelectorAll('select[name^="condition_"]').forEach((condition) => {
+    const questionid = condition.dataset.questionId;
+    const targets = ['group', 'activity', 'competency', 'badge'].map((type) => {
+        const element = document.querySelector('[name="target_' + type + '_' + questionid + '"]');
+        return {type, element, wrapper: element ? element.closest('.fitem, .form-group') : null};
+    });
+    const update = () => targets.forEach((target) => {
+        if (target.wrapper) {
+            target.wrapper.hidden = target.type !== condition.value;
+        }
+    });
+    condition.addEventListener('change', update);
+    update();
+});
+JS
+);
+$formdata = ['cmid' => $cmid, 'slotid' => $slotid];
+foreach ($DB->get_records('local_cq_rule', ['quizid' => $quizobj->get_quizid()]) as $rule) {
+    if (!isset($questions[$rule->questionid])) {
+        continue;
+    }
+    $formdata['condition_' . $rule->questionid] = $rule->conditiontype;
+    $formdata['target_' . $rule->conditiontype . '_' . $rule->questionid] = $rule->conditionvalue;
+}
+$form->set_data((object) $formdata);
+if ($form->is_cancelled()) {
+    redirect(new \moodle_url('/mod/quiz/edit.php', ['cmid' => $cmid]));
+}
+if ($data = $form->get_data()) {
+    $now = time();
+    foreach ($questions as $question) {
+        $DB->delete_records('local_cq_rule', [
+            'quizid' => $quizobj->get_quizid(), 'questionid' => $question->questionid,
+        ]);
+    }
+    foreach ($questions as $question) {
+        $id = (int) $question->questionid;
+        $type = $data->{'condition_' . $id} ?? '';
+        $value = $data->{'target_' . $type . '_' . $id} ?? 0;
+        if ($type === '' || !is_numeric($value) || (int) $value <= 0) {
+            continue;
+        }
+        $DB->insert_record('local_cq_rule', (object) [
+            'quizid' => $quizobj->get_quizid(), 'questionid' => $id,
+            'conditiontype' => $type, 'conditionvalue' => (int) $value,
+            'timecreated' => $now, 'timemodified' => $now,
+        ]);
+    }
+    redirect(new \moodle_url('/mod/quiz/edit.php', ['cmid' => $cmid]),
+        get_string('changessaved'));
+}
+
+echo $OUTPUT->header();
+$form->display();
+echo $OUTPUT->footer();
