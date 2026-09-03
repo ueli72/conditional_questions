@@ -3,6 +3,7 @@ defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'Bedingte Fragen';
 $string['configurequestion'] = 'Bedingung der Frage konfigurieren';
+$string['changequestioncondition'] = 'Bedingung der Frage ändern';
 $string['invalidquestionid'] = 'Die ausgewählte Quizfrage wurde nicht gefunden.';
 $string['condition'] = 'Bedingung';
 $string['conditionheading'] = 'Bedingungen für Anzeige der Frage';

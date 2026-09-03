@@ -48,6 +48,8 @@ final class hook_callbacks {
     }
 
     public static function add_question_action(\mod_quiz\hook\edit_question_actions $hook): void {
+        global $DB;
+
         $structure = $hook->get_structure();
         if (!$structure->can_be_edited() || !$structure->has_use_capability($hook->get_slot())) {
             return;
@@ -56,11 +58,19 @@ final class hook_callbacks {
             'cmid' => $structure->get_cmid(),
             'slotid' => $structure->get_slot_by_number($hook->get_slot())->id,
         ]);
-        $title = get_string('configurequestion', 'local_conditional_questions');
+        $question = $structure->get_question_in_slot($hook->get_slot());
+        $configured = $DB->record_exists('local_cq_rule', [
+            'quizid' => $structure->get_quizid(),
+            'questionid' => $question->questionid,
+        ]);
+        $title = get_string($configured ? 'changequestioncondition' : 'configurequestion',
+            'local_conditional_questions');
+        $linkclass = 'conditional-question-action' . ($configured ? ' conditional-question-configured' : '');
+        $iconclass = 'icon fa fa-code-branch fa-fw' . ($configured ? ' text-success' : '');
         $hook->add_action('local_conditional_questions', \html_writer::link(
             $url,
-            \html_writer::tag('i', '', ['class' => 'icon fa fa-code-branch fa-fw', 'title' => $title, 'aria-label' => $title]),
-            ['class' => 'conditional-question-action', 'title' => $title, 'aria-label' => $title]
+            \html_writer::tag('i', '', ['class' => $iconclass, 'title' => $title, 'aria-label' => $title]),
+            ['class' => $linkclass, 'title' => $title, 'aria-label' => $title]
         ));
     }
 
