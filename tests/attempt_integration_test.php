@@ -1,10 +1,35 @@
 <?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
 namespace local_conditional_questions;
 
-defined('MOODLE_INTERNAL') || die();
-
-/** Integration tests for filtering questions and rescaling the attempt grade. */
+/**
+ * Integration tests for question filtering and attempt grade rescaling.
+ *
+ * @package    local_conditional_questions
+ * @copyright  2026 Ueli Leutwyler
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 final class attempt_integration_test extends \advanced_testcase {
+    /**
+     * An unmet condition removes the question and the attempt maximum is normalised.
+     *
+     * @covers \local_conditional_questions\hook_callbacks::filter_questions
+     * @covers \local_conditional_questions\hook_callbacks::set_attempt_maxmark
+     */
     public function test_unmet_condition_removes_question_and_normalises_maximum(): void {
         global $DB;
 
@@ -22,7 +47,7 @@ final class attempt_integration_test extends \advanced_testcase {
         \quiz_add_quiz_question($questiontwo->id, $quiz, 1);
         \mod_quiz\quiz_settings::create($quiz->id)->get_grade_calculator()->recompute_quiz_sumgrades();
 
-        $DB->insert_record('local_cq_rule', (object) [
+        $DB->insert_record('local_conditional_questions_rule', (object) [
             'quizid' => $quiz->id,
             'questionid' => $questiontwo->id,
             'conditiontype' => 'group',
@@ -41,6 +66,11 @@ final class attempt_integration_test extends \advanced_testcase {
         $this->assertEquals(100.0, \quiz_rescale_grade(1.0, $quiz, false, $storedattempt));
     }
 
+    /**
+     * A met activity-completion condition keeps the question in the attempt.
+     *
+     * @covers \local_conditional_questions\hook_callbacks::filter_questions
+     */
     public function test_activity_completion_condition(): void {
         $setup = $this->create_quiz_setup();
         $activity = $this->getDataGenerator()->create_module('page', [
@@ -70,6 +100,11 @@ final class attempt_integration_test extends \advanced_testcase {
         $this->assertCount(1, \question_engine::load_questions_usage_by_activity($attempt->uniqueid)->get_slots());
     }
 
+    /**
+     * A proficient competency condition keeps the question in the attempt.
+     *
+     * @covers \local_conditional_questions\hook_callbacks::filter_questions
+     */
     public function test_competency_condition(): void {
         $setup = $this->create_quiz_setup();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_competency');
@@ -86,6 +121,11 @@ final class attempt_integration_test extends \advanced_testcase {
         $this->assertCount(1, \question_engine::load_questions_usage_by_activity($attempt->uniqueid)->get_slots());
     }
 
+    /**
+     * An unexpired badge condition keeps the question in the attempt.
+     *
+     * @covers \local_conditional_questions\hook_callbacks::filter_questions
+     */
     public function test_badge_condition(): void {
         $setup = $this->create_quiz_setup();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_badges');
@@ -97,6 +137,8 @@ final class attempt_integration_test extends \advanced_testcase {
     }
 
     /**
+     * Create a course with an enrolled student and a single-question quiz.
+     *
      * @return array{course: \stdClass, student: \stdClass, quiz: \stdClass, question: \stdClass}
      */
     private function create_quiz_setup(): array {
@@ -115,9 +157,17 @@ final class attempt_integration_test extends \advanced_testcase {
         return compact('course', 'student', 'quiz', 'question');
     }
 
+    /**
+     * Store a rule of the given type and start a new attempt as the student.
+     *
+     * @param array $setup prepared course, student, quiz and question
+     * @param string $type the condition type to configure
+     * @param int $value the condition target id
+     * @return \stdClass the created attempt record
+     */
     private function start_conditional_attempt(array $setup, string $type, int $value): \stdClass {
         global $DB;
-        $DB->insert_record('local_cq_rule', (object) [
+        $DB->insert_record('local_conditional_questions_rule', (object) [
             'quizid' => $setup['quiz']->id,
             'questionid' => $setup['question']->id,
             'conditiontype' => $type,

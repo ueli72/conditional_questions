@@ -8,7 +8,7 @@ index 4869678e400..8b78fe2cb70 100644
              'state', 'timestart', 'timefinish', 'timemodified', 'timemodifiedoffline',
 -            'timecheckstate', 'sumgrades', 'gradednotificationsenttime']);
 +            'timecheckstate', 'sumgrades', 'maxmark', 'gradednotificationsenttime']);
-
+ 
          // This module is using questions, so produce the related question states and sessions
          // attaching them to the $attempt element based in 'uniqueid' matching.
 diff --git a/public/mod/quiz/classes/external.php b/public/mod/quiz/classes/external.php
@@ -17,7 +17,7 @@ index 1c597e27249..f5a6fe22b53 100644
 +++ b/public/mod/quiz/classes/external.php
 @@ -666,7 +666,7 @@ class mod_quiz_external extends external_api {
              }
-
+ 
              if ($canviewfeedback) {
 -                $attemptgrade = quiz_rescale_grade($attemptsumgrades, $quiz, false);
 +                $attemptgrade = quiz_rescale_grade($attemptsumgrades, $quiz, false, $attempt);
@@ -26,12 +26,12 @@ index 1c597e27249..f5a6fe22b53 100644
                      $feedbackrecord->feedbacktext,
 @@ -1749,7 +1749,8 @@ class mod_quiz_external extends external_api {
          }
-
+ 
          // Feedback if there is any, and the user is allowed to see it now.
 -        $grade = quiz_rescale_grade($attemptobj->get_attempt()->sumgrades, $attemptobj->get_quiz(), false);
 +        $grade = quiz_rescale_grade($attemptobj->get_attempt()->sumgrades, $attemptobj->get_quiz(), false,
 +            $attemptobj->get_attempt());
-
+ 
          $feedback = $attemptobj->get_overall_feedback($grade);
          if ($displayoptions->overallfeedback && $feedback) {
 diff --git a/public/mod/quiz/classes/grade_calculator.php b/public/mod/quiz/classes/grade_calculator.php
@@ -41,7 +41,7 @@ index 155c2186be5..03feba9bcca 100644
 @@ -167,6 +167,10 @@ class grade_calculator {
              $attempts = quiz_get_user_attempts($quiz->id, $userid);
          }
-
+ 
 +        $gradehook = new \mod_quiz\hook\before_final_grade_calculated($this->quizobj, $userid, $attempts);
 +        \core\di::get(\core\hook\manager::class)->dispatch($gradehook);
 +        $attempts = $gradehook->get_attempts();
@@ -58,7 +58,7 @@ index 155c2186be5..03feba9bcca 100644
 +            new \mod_quiz\hook\after_all_final_grades_recomputed($this->quizobj)
 +        );
      }
-
+ 
      /**
 diff --git a/public/mod/quiz/classes/hook/after_all_final_grades_recomputed.php b/public/mod/quiz/classes/hook/after_all_final_grades_recomputed.php
 new file mode 100644
@@ -469,12 +469,12 @@ index d3ad48d8d03..0fff470c63d 100644
 +++ b/public/mod/quiz/classes/local/reports/attempts_report_table.php
 @@ -276,7 +276,7 @@ abstract class attempts_report_table extends \table_sql {
          }
-
+ 
          $feedback = quiz_report_feedback_for_grade(
 -                quiz_rescale_grade($attempt->sumgrades, $this->quiz, false),
 +                quiz_rescale_grade($attempt->sumgrades, $this->quiz, false, $attempt),
                  $this->quiz->id, $this->context);
-
+ 
          if ($this->is_downloading()) {
 diff --git a/public/mod/quiz/classes/output/attempt_summary_information.php b/public/mod/quiz/classes/output/attempt_summary_information.php
 index 7944d9f77c8..77c74ff5932 100644
@@ -486,7 +486,7 @@ index 7944d9f77c8..77c74ff5932 100644
          $quiz = $attemptobj->get_quiz();
 -        $grade = quiz_rescale_grade($attemptobj->get_sum_marks(), $quiz, false);
 +        $grade = quiz_rescale_grade($attemptobj->get_sum_marks(), $quiz, false, $attemptobj->get_attempt());
-
+ 
          if ($options->marks < question_display_options::MARK_AND_MAX) {
              // User can't see grades.
 diff --git a/public/mod/quiz/classes/output/edit_renderer.php b/public/mod/quiz/classes/output/edit_renderer.php
@@ -495,7 +495,7 @@ index 2066f7b4728..91b7b988e0d 100644
 +++ b/public/mod/quiz/classes/output/edit_renderer.php
 @@ -623,6 +623,9 @@ class edit_renderer extends \plugin_renderer_base {
              \core_question\local\bank\question_edit_contexts $contexts, array $pagevars) {
-
+ 
          $actions = $this->edit_menu_actions($structure, $page, $pageurl, $pagevars);
 +        $hook = new \mod_quiz\hook\edit_menu_actions($structure, $page, $pageurl, $pagevars, $actions);
 +        \core\di::get(\core\hook\manager::class)->dispatch($hook);
@@ -511,7 +511,7 @@ index 2066f7b4728..91b7b988e0d 100644
 +        \core\di::get(\core\hook\manager::class)->dispatch($hook);
 +        $questionicons .= implode('', $hook->get_actions());
          $questionicons .= $this->marked_out_of_field($structure, $slot);
-
+ 
          return $questionicons;
 diff --git a/public/mod/quiz/classes/output/renderer.php b/public/mod/quiz/classes/output/renderer.php
 index f29f14edb84..870d6169693 100644
@@ -519,11 +519,11 @@ index f29f14edb84..870d6169693 100644
 +++ b/public/mod/quiz/classes/output/renderer.php
 @@ -1182,7 +1182,7 @@ class renderer extends plugin_renderer_base {
              }
-
+ 
              // Outside the if because we may be showing feedback but not grades.
 -            $attemptgrade = quiz_rescale_grade($attemptobj->get_sum_marks(), $quiz, false);
 +            $attemptgrade = quiz_rescale_grade($attemptobj->get_sum_marks(), $quiz, false, $attemptobj->get_attempt());
-
+ 
              if ($viewobj->gradecolumn) {
                  if ($attemptoptions->marks >= question_display_options::MARK_AND_MAX &&
 diff --git a/public/mod/quiz/classes/privacy/provider.php b/public/mod/quiz/classes/privacy/provider.php
@@ -537,7 +537,7 @@ index 4d6b1aafd2b..07fcadb5e2a 100644
 -            'qa.timefinish, qa.timemodified, qa.timemodifiedoffline, qa.timecheckstate, qa.sumgrades, ' .
 +            'qa.timefinish, qa.timemodified, qa.timemodifiedoffline, qa.timecheckstate, qa.sumgrades, qa.maxmark, ' .
              'qa.gradednotificationsenttime';
-
+ 
          $sql = "SELECT
 @@ -587,9 +587,12 @@ class provider implements
                  if (!empty($attempt->gradednotificationsenttime)) {
@@ -546,7 +546,7 @@ index 4d6b1aafd2b..07fcadb5e2a 100644
 +                if (!is_null($attempt->maxmark)) {
 +                    $data->maxmark = $attempt->maxmark;
 +                }
-
+ 
                  if ($options->marks == \question_display_options::MARK_AND_MAX) {
 -                    $grade = quiz_rescale_grade($attempt->sumgrades, $quiz, false);
 +                    $grade = quiz_rescale_grade($attempt->sumgrades, $quiz, false, $attempt);
@@ -572,7 +572,7 @@ index 4361f308162..911177a978d 100644
 @@ -109,5 +109,14 @@ function xmldb_quiz_upgrade($oldversion) {
      // Automatically generated Moodle v5.2.0 release upgrade line.
      // Put any upgrade step following this.
-
+ 
 +    if ($oldversion < 2026090200) {
 +        $table = new xmldb_table('quiz_attempts');
 +        $field = new xmldb_field('maxmark', XMLDB_TYPE_NUMBER, '12,7', null, null, null, null, 'sumgrades');
@@ -591,7 +591,7 @@ index d2ec29a3417..b504781f7fc 100644
 @@ -169,16 +169,35 @@ function quiz_start_new_attempt($quizobj, $quba, $attempt, $attemptnumber, $time
      // Partially load all the questions in this quiz.
      $quizobj->preload_questions();
-
+ 
 +    // Allow plugins to remove questions before they enter the question usage.
 +    $questionfilterhook = new \mod_quiz\hook\before_attempt_questions_created(
 +        $quizobj,
@@ -628,7 +628,7 @@ index d2ec29a3417..b504781f7fc 100644
 @@ -202,7 +221,7 @@ function quiz_start_new_attempt($quizobj, $quba, $attempt, $attemptnumber, $time
          }
          $randomloader = new \core_question\local\bank\random_question_loader($qubaids, $usedquestionids);
-
+ 
 -        foreach ($quizobj->get_questions(null, false) as $questiondata) {
 +        foreach ($filteredquestions as $questiondata) {
              $slot += 1;
@@ -636,7 +636,7 @@ index d2ec29a3417..b504781f7fc 100644
                  continue;
 @@ -260,22 +279,14 @@ function quiz_start_new_attempt($quizobj, $quba, $attempt, $attemptnumber, $time
      $quba->start_all_questions($variantstrategy, question_attempt_step::TIMECREATED_ON_FIRST_RENDER, $attempt->userid);
-
+ 
      // Work out the attempt layout.
 -    $sections = $quizobj->get_sections();
 -    foreach ($sections as $i => $section) {
@@ -665,7 +665,7 @@ index d2ec29a3417..b504781f7fc 100644
              foreach ($questionsinthissection as $slot) {
 @@ -288,8 +299,8 @@ function quiz_start_new_attempt($quizobj, $quba, $attempt, $attemptnumber, $time
              }
-
+ 
          } else {
 -            $currentpage = $page[$section->firstslot];
 -            for ($slot = $section->firstslot; $slot <= $section->lastslot; $slot += 1) {
@@ -675,9 +675,9 @@ index d2ec29a3417..b504781f7fc 100644
                      $layout[] = 0;
                  }
 @@ -367,6 +378,9 @@ function quiz_attempt_save_started(
-
+ 
      $attempt->timestart = $timenow ?? time();
-
+ 
 +    $attemptsavehook = new \mod_quiz\hook\before_attempt_saved($quizobj, $quba, $attempt);
 +    \core\di::get(\core\hook\manager::class)->dispatch($attemptsavehook);
 +
@@ -719,7 +719,7 @@ index 89f1ad1405d..ea2e0e8876e 100644
 @@ -233,7 +233,7 @@ class quiz_overview_table extends attempts_report_table {
              return '-';
          }
-
+ 
 -        $grade = quiz_rescale_grade($attempt->sumgrades, $this->quiz);
 +        $grade = quiz_rescale_grade($attempt->sumgrades, $this->quiz, true, $attempt);
          if ($this->is_downloading()) {
@@ -743,7 +743,7 @@ index 89f1ad1405d..ea2e0e8876e 100644
 -                    $stepdata->fraction * $question->maxmark, $this->quiz, 'question');
 +                    $stepdata->fraction * $question->maxmark, $this->quiz, 'question', $attempt);
          }
-
+ 
          if ($this->is_downloading()) {
 @@ -306,10 +306,10 @@ class quiz_overview_table extends attempts_report_table {
              $gradefromdb = $grade;
@@ -755,7 +755,7 @@ index 89f1ad1405d..ea2e0e8876e 100644
                      $this->regradedqs[$attempt->usageid][$slot]->oldfraction * $question->maxmark,
 -                    $this->quiz, 'question');
 +                    $this->quiz, 'question', $attempt);
-
+ 
              $grade = html_writer::tag('del', $oldgrade) . '/' .
                      html_writer::empty_tag('br') . $newgrade;
 diff --git a/public/mod/quiz/report/responses/last_responses_table.php b/public/mod/quiz/report/responses/last_responses_table.php
@@ -765,7 +765,7 @@ index 5d2868ba1f4..a3893d00ceb 100644
 @@ -56,7 +56,7 @@ class quiz_last_responses_table extends attempts_report_table {
              return '-';
          }
-
+ 
 -        $grade = quiz_rescale_grade($attempt->sumgrades, $this->quiz);
 +        $grade = quiz_rescale_grade($attempt->sumgrades, $this->quiz, true, $attempt);
          if ($this->is_downloading()) {
@@ -776,9 +776,9 @@ index 39223dec4dd..6fb72d2702e 100644
 --- a/public/mod/quiz/version.php
 +++ b/public/mod/quiz/version.php
 @@ -24,6 +24,6 @@
-
+ 
  defined('MOODLE_INTERNAL') || die();
-
+ 
 -$plugin->version = 2026042000;
 +$plugin->version = 2026090200;
  $plugin->requires = 2026041000;

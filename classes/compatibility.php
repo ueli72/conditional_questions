@@ -1,10 +1,32 @@
 <?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
 namespace local_conditional_questions;
 
-defined('MOODLE_INTERNAL') || die();
-
-/** Checks the optional Moodle core extension points used by this plugin. */
+/**
+ * Checks the optional Moodle core extension points used by this plugin.
+ *
+ * @package    local_conditional_questions
+ * @copyright  2026 Ueli Leutwyler
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 final class compatibility {
+    /**
+     * Whether the quiz_attempts.maxmark column added by the core patch exists.
+     */
     public static function attempt_maxmark_available(): bool {
         global $DB;
         return $DB->get_manager()->field_exists(
@@ -51,10 +73,16 @@ final class compatibility {
         return false;
     }
 
+    /**
+     * Whether the quiz editing question-actions hook is available.
+     */
     public static function question_action_hook_available(): bool {
         return self::supports('\\mod_quiz\\hook\\edit_question_actions');
     }
 
+    /**
+     * Whether the before_attempt_questions_created hook is available.
+     */
     public static function filter_hook_available(): bool {
         return self::supports('\\mod_quiz\\hook\\before_attempt_questions_created');
     }

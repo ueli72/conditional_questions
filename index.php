@@ -1,4 +1,27 @@
 <?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
+/**
+ * Configure the conditional visibility of quiz questions for one quiz.
+ *
+ * @package    local_conditional_questions
+ * @copyright  2026 Ueli Leutwyler
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
 require(__DIR__ . '/../../config.php');
 require_once($CFG->libdir . '/formslib.php');
 
@@ -15,8 +38,10 @@ $PAGE->set_context($context);
 $PAGE->activityheader->disable();
 
 $quizobj->preload_questions();
-$questions = array_filter($quizobj->get_questions(null, false),
-    static fn($question): bool => (int) $question->slotid === $slotid);
+$questions = array_filter(
+    $quizobj->get_questions(null, false),
+    static fn($question): bool => (int) $question->slotid === $slotid
+);
 if (!$questions) {
     throw new \moodle_exception('invalidquestionid', 'local_conditional_questions');
 }
@@ -44,7 +69,9 @@ $competencies = $DB->get_records_sql(
        JOIN {competency_framework} cf ON cf.id = c.competencyframeworkid
        LEFT JOIN {competency_coursecomp} cc
          ON cc.competencyid = c.id AND cc.courseid = :courseid
-      ORDER BY cf.shortname, c.shortname', ['courseid' => $quizobj->get_courseid()]);
+      ORDER BY cf.shortname, c.shortname',
+    ['courseid' => $quizobj->get_courseid()]
+);
 foreach ($competencies as $competency) {
     $scope = $competency->iscoursecompetency
         ? get_string('coursecompetency', 'local_conditional_questions')
@@ -52,8 +79,14 @@ foreach ($competencies as $competency) {
     $targets['competency'][$competency->id] = $scope . ': ' . format_string($competency->frameworkname) . ' / ' .
         format_string($competency->shortname);
 }
-foreach ($DB->get_records_select('badge', '(courseid IS NULL OR courseid = 0 OR courseid = :courseid)',
-        ['courseid' => $quizobj->get_courseid()], 'name') as $badge) {
+foreach (
+    $DB->get_records_select(
+        'badge',
+        '(courseid IS NULL OR courseid = 0 OR courseid = :courseid)',
+        ['courseid' => $quizobj->get_courseid()],
+        'name'
+    ) as $badge
+) {
     $targets['badge'][$badge->id] = format_string($badge->name);
 }
 
@@ -76,7 +109,7 @@ document.querySelectorAll('select[name^="condition_"]').forEach((condition) => {
 JS
 );
 $formdata = ['cmid' => $cmid, 'slotid' => $slotid];
-foreach ($DB->get_records('local_cq_rule', ['quizid' => $quizobj->get_quizid()]) as $rule) {
+foreach ($DB->get_records('local_conditional_questions_rule', ['quizid' => $quizobj->get_quizid()]) as $rule) {
     if (!isset($questions[$rule->questionid])) {
         continue;
     }
@@ -90,7 +123,7 @@ if ($form->is_cancelled()) {
 if ($data = $form->get_data()) {
     $now = time();
     foreach ($questions as $question) {
-        $DB->delete_records('local_cq_rule', [
+        $DB->delete_records('local_conditional_questions_rule', [
             'quizid' => $quizobj->get_quizid(), 'questionid' => $question->questionid,
         ]);
     }
@@ -101,14 +134,16 @@ if ($data = $form->get_data()) {
         if ($type === '' || !is_numeric($value) || (int) $value <= 0) {
             continue;
         }
-        $DB->insert_record('local_cq_rule', (object) [
+        $DB->insert_record('local_conditional_questions_rule', (object) [
             'quizid' => $quizobj->get_quizid(), 'questionid' => $id,
             'conditiontype' => $type, 'conditionvalue' => (int) $value,
             'timecreated' => $now, 'timemodified' => $now,
         ]);
     }
-    redirect(new \moodle_url('/mod/quiz/edit.php', ['cmid' => $cmid]),
-        get_string('changessaved'));
+    redirect(
+        new \moodle_url('/mod/quiz/edit.php', ['cmid' => $cmid]),
+        get_string('changessaved')
+    );
 }
 
 echo $OUTPUT->header();

@@ -15,18 +15,32 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Version information for the conditional questions plugin.
+ * Upgrade code for the conditional questions plugin.
  *
  * @package    local_conditional_questions
  * @copyright  2026 Ueli Leutwyler
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
+/**
+ * Upgrade the plugin.
+ *
+ * @param int $oldversion the version the plugin was upgraded from
+ * @return bool
+ */
+function xmldb_local_conditional_questions_upgrade(int $oldversion): bool {
+    global $DB;
 
-$plugin->component = 'local_conditional_questions';
-$plugin->version = 2026100200;
-$plugin->requires = 2025041400;
-$plugin->supported = [502, 502];
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.2';
+    $dbman = $DB->get_manager();
+
+    if ($oldversion < 2026100200) {
+        // Rename local_cq_rule to the component-prefixed table name.
+        $table = new xmldb_table('local_cq_rule');
+        if ($dbman->table_exists($table)) {
+            $dbman->rename_table($table, 'local_conditional_questions_rule');
+        }
+        upgrade_plugin_savepoint(true, 2026100200, 'local', 'conditional_questions');
+    }
+
+    return true;
+}
